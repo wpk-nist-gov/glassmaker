@@ -1,0 +1,31 @@
+**********************************************************************
+Glass maker
+**********************************************************************
+
+Requirements
+************
+
+glass maker is designed for a LINUX or MAC OS X platform
+
+python 2.7 
+periodictable 1.4.1
+JSON module 
+
+Installation
+************
+
+install periodictable:
+  pip install periodictable
+  --OR--
+  download from pypi.python.org/pypi/periodictable
+    python setup.py develop
+
+Usage
+************
+
+run glass maker test suite
+  ./testGlass.py
+
+
+NOTE: I may not have used the periodictable module to its full potential, but simply as a means to get atomic symbols and molecular weights. I figured that we would want a different interface because glasses don't follow exact stoichiometry. Also the documentation is lacking, and we may be better off getting data direction from NIST sources. For these reasons, my example only uses the periodictable in the implementation so that it can be easily replaced without affecting the interface.
+

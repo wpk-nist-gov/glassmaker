@@ -1,0 +1,11 @@
+#use glob syntax
+syntax: glob
+
+# compiled python classes
+*.pyc
+
+# temporary files
+*.swp
+*.bak
+
+
