@@ -1,83 +1,39 @@
-
-
 import periodictable as PT
-import periodictable.formulas
-from collections import OrderedDict
-
+from  periodictable.formulas import Formula as PTFormula
+from collections import OrderedDict,defaultdict
 import numpy as np
 
 
+#dict class wich has order and default values
 class superdict(OrderedDict):
     """
-    Constructs an defaultDict with attribute and positional access to data.
+    Constructs an OrderedDict with default values that can be accessed by key or position
 
-    Setting a NEW attribute only creates it on the instance, not the dict.
-    Setting an attribute that is a key in the data will set the dict data but 
-    will not create a new instance attribute
+    Attributes
+    ----------
+    loc: access by location
+    
     """
     
-    
-    
     def __init__(self,default=None,*args,**kwargs):
-        
         super(superdict,self).__init__(*args,**kwargs)
-        self._check_keys()
         self._default = default
         
-    def _check_keys(self):
-        for k in self.keys():
-            if type(k) is int:
-                raise IndexError('key cannot be ints')
-                
-    def _getkey(self,key):
-        if type(key) is int:
-            return self.keys()[key]
-        else:
-            return key
         
     def __getitem__(self,key):
-        skey = self._getkey(key)
-        if self.has_key(skey):
-            return super(superdict,self).__getitem__(skey)#self._getkey[key])
+        if self.has_key(key):
+            return super(superdict,self).__getitem__(key)#self._getkey[key])
         else:
             if self._default is None:
                 raise IndexError('bad index',key)
             else:
                 return self._default
-    def __setitem__(self,key,value):
-        skey = self._getkey(key)
-        return super(superdict,self).__setitem__(skey,value)
-    
-    def __getattr__(self, attr):
-        """
-        Try to get the data. If attr is not a key, fall-back and get the attr
-        """
-        if self.has_key(attr):
-            return super(superdict, self).__getitem__(attr)
-        else:
-            return super(superdict, self).__getattr__(attr)
-
-
-    def __setattr__(self, attr, value):
-        """
-        Try to set the data. If attr is not a key, fall-back and set the attr
-        """
-        if self.has_key(attr):
-            super(superdict, self).__setitem__(attr, value)
-        else:
-            super(superdict, self).__setattr__(attr, value)
             
-            
-    def __dir__(self):
-        heritage = dir(super(self.__class__, self)) # inherited attributes
-        hide = [] #attributes to hide
-        new = self.keys()
-        show = [k for k in new if k not in heritage + hide]
-        return sorted(heritage + show)    
-
-
-
-
+    def loc(self,key):
+        """
+        access dict by location
+        """
+        return self.values()[key]
 
 def my_mix_by_weight(data,scale=False):
     """
@@ -122,211 +78,439 @@ def my_mix_by_weight(data,scale=False):
     return result
 
 
-from collections import namedtuple  
-_singleatom=namedtuple('singleatom',['mass_fraction','atoms'])
+##################################################
+#tests
+from collections import Mapping
+from collections import Iterable
 
+def _is_dict_like(x):
+    return isinstance(x,Mapping)
 
+def _is_list_like(x):
+    return isinstance(x,(np.ndarray,list,tuple))
 
-class MyFormula(object):
+def _is_string_like(val):
+    """Returns True if val acts like a string"""
+    try: val+''
+    except: return False
+    return True
+
+def _is_iterable(x):
+    return isinstance(x,Iterable)    
+
+    
+class Compound(object):
     """
-    interface to periodictable
+    basic Compound container
+
+    Attributes
+    ----------
+    formula : formula
+
+    name : formula name
+
+    atoms : number of atoms of each element
+
+    mass_fraction : mass fraction of each element
+
+
+
+    #internal storage:
+    _formula : string, or list of tuples
+
+    _name : string or None
+    
     """
     
-    def __init__(self,formula=None,name=None,mass_fraction_volatile=None):
+    
+    def __init__(self,formula=None,name=None):
         """
-        create a formula with string atom name access
-        
+        init
+
         Parameters
         ----------
-        formula: str/formula/dict
-          if str or formula, single entry
-          if dict: mix by mass
-          {'atom':mass}
-        """
+        formula : formula like
+         formula string, formula dict {string:mass_frac,..},
+         Compound, or Compound.to_dict()
 
+        name : name of compound
+        """
         self.name = name
-        self.mass_fraction_volatile = mass_fraction_volatile
         self.formula = formula
 
-        
-    def __getitem__(self,key):
-        return _singleatom(mass_fraction=self.mass_fraction[key],atoms=self.atoms[key])
+        if name is not None:
+            "overide name"
+            self.name = name
 
+
+    ###################################################
+    #formula
     @property
     def formula(self):
-        if isinstance(self._formula,str):
-            return PT.formula(self._formula)
-        else:
+        if isinstance(self._formula,OrderedDict):
             return my_mix_by_weight(self._formula)
+        else:
+            return PT.formula(self._formula)
 
     @formula.setter
     def formula(self,formula):
-        if isinstance(formula,(str,unicode,PT.formulas.Formula)):
+        if formula is None:
+            self._formula = ''
+
+        elif _is_string_like(formula):
             self._formula = str(formula)
-        elif isinstance(formula,(list,tuple)):
-            self._formula = OrderedDict([(str(k),v) for k,v in formula])
-        elif isinstance(formula,(dict,OrderedDict)):
-            self._formula = formula
-        elif isinstance(formula,MyFormula):
-            self._formula = formula._formula
-            self._name = formula._name
-            self._mass_fraction_volatile = formula._mass_fraction_volatile
+
+        elif _is_list_like(formula):
+            self._formula = OrderedDict(formula)
+
+        elif _is_dict_like(formula):
+            if 'formula' in formula:
+                #is a dictionary to be sent to Compound
+                self.__dict__ = Compound(**formula).__dict__
+            else:
+                self._formula = OrderedDict(formula)
+            
+
+        elif isinstance(formula,Compound):
+            #compy data
+            self.__dict__ = formula.__dict__.copy()
+
+        elif isinstance(formula,PTFormula):
+            self._formula = str(formula)
+            
         else:
-            raise ValueError('bad formula',formula,type(formula))
+            raise ValueError('bad formula',formula)
+            
+
+        if isinstance(self._formula,str):
+            #all good
+            pass
+        
+        elif isinstance(self._formula,OrderedDict):
+            #make sure have string rep for each formula
+            self._formula = OrderedDict([(str(k),v) for k,v in self._formula.iteritems()])
+        else:
+            raise ValueError('bad formula')
+            
+
+
+    @property
+    def sformula(self):
+        return self._formula
         
     @property
+    def atoms(self):
+        return superdict(0,[(str(k),v) for k,v in self.formula.atoms.iteritems()])
+        #return defaultdict(int,[(str(k),v) for k,v in self.formula.atoms.iteritems()])        
+    
+    @property
+    def mass_fraction(self):
+        return superdict(0.0,[(str(k),v) for k,v in self.formula.mass_fraction.iteritems()])
+        #return defaultdict(float,[(str(k),v) for k,v in self.formula.mass_fraction.iteritems()])
+
+
+    ###################################################
+    #name
+    @property
     def name(self):
-        return self._name
+        return self.__dict__.get('_name',None)
 
     @name.setter
     def name(self,value):
         self._name = value
 
     @property
-    def mass_fraction_volatile(self):
-        if self._mass_fraction_volatile is None:
-            return 0.0
-        else:
-            return self._mass_fraction_volatile
-    @mass_fraction_volatile.setter
-    def mass_fraction_volatile(self,value):
-        self._mass_fraction_volatile = value
-
-    @property
-    def mass_fraction_non_volatile(self):
-        return 1.0 - self.mass_fraction_volatile
-        
-        
-    @property
     def longname(self):
+        """
+        formula longname
+        """
         return str(self.formula)
-            
-    
-    
-    @property 
-    def atoms(self):
-        return superdict(0,[(str(k),v) for k,v in self.formula.atoms.iteritems()])
-    
-    @property
-    def mass_fraction(self):
-        return superdict(0.0,[(str(k),v) for k,v in self.formula.mass_fraction.iteritems()])
         
     
+    def copy(self):
+        """
+        copy data to new Compound object
+        """
+        r = Compound()
+        r.__dict__ = self.__dict__.copy()
+        return r
+        
+    def __getattr__(self,name):
+        if hasattr(self.formula,name):
+            return getattr(self.formula,name)
+
+
+    def to_dict(self):
+        return {k.lstrip('_'):v for k,v in self.__dict__.iteritems()}
+        
     def __repr__(self):
-        return repr(self.formula)
+        return repr(self.to_dict())
 
     def __str__(self):
-        return str(self.formula)
-    
-    def __getitem__(self,key):
-        return _singleatom(mass_fraction=self.mass_fraction[key],atoms=self.atoms[key])
-    
-    def __getattr__(self,name):
-        f = self.formula
-        if hasattr(f,name):
-            return getattr(f,name)
+        return str(self.to_dict())
 
-        if name in self.atoms.keys():
-            return self[name]
-                
         
     def __dir__(self):
-        #heritage = dir(super(self.__class__, self)) # inherited attributes
         heritage = dir(type(self.formula))
         hide = [] #attributes to hide
-        new = self.__dict__.keys() + self.atoms.keys() +dir(self.formula)
+        new = self.__dict__.keys() + dir(self.formula)
         show = [k for k in new if k not in heritage + hide]
         return sorted(heritage + show)
+        
+
+
+
+
+class CompoundVolatile(object):
+    """
+    container for volatile formulas
+
+    Attributes
+    ----------
+    measured : measured compound
+
+    final : final compound
+    """
+
+    def __init__(self,measured=None,final=None,name=None):
+        """
+        create
+
+        Parameters
+        ----------
+        measured : formula like
+         formula for measured compound
+
+        final : formula like
+         formula in final state
+        """
+
+        self.name = name
+
+        if _is_dict_like(measured) and 'measured' in measured:
+            #dictionary to be parsed
+            self.__dict__ = CompoundVolatile(**measured).__dict__
+        elif isinstance(measured,CompoundVolatile):
+            self.__dict__ = measured.__dict__.copy()
+        else:
+            self.measured = measured
+            self.final = final
+        #overide name?
+        if name is not None:
+            self._name = name
+
+
+    @property
+    def measured(self):
+        return self._measured
+
+    @measured.setter
+    def measured(self,value):
+        self._measured = Compound(value)
+
+    @property
+    def final(self):
+        if self._final is None:
+            return self._measured
+        else:
+            return self._final
+
+    @final.setter
+    def final(self,value):
+        if value is None:
+            self._final = None
+        else:
+            self._final = Compound(value)
+
+    @property
+    def name(self):
+        """
+        return, in order, name, measured.name, measured.longname
+        """
+        if self._name is not None:
+            return self._name
+        elif self.measured.name is not None:
+            return self.measured.name
+        else:
+            return self.measured.longname
+
+    @name.setter
+    def name(self,value):
+        self._name = value
+
+            
+    def copy(self):
+        """
+        copy data to new object
+        """
+        r = CompoundVolatile()
+        r.__dict__ = self.__dict__.copy()
+        return r
+        
+            
+    def changes(self,atom):
+        """
+        check if specified atom changes between measured and final
+        """
+
+        x0 = self.measured.mass_fraction[atom] * self.measured.mass
+        x1 = self.final.mass_fraction[atom] *self.final.mass
+        if x0 != x1:
+            return True
+        else:
+            return False
+
+    @property
+    def measured_to_final_conversion(self):
+        """
+        conversion from measured to final
+        """
+        return self.final.mass/self.measured.mass
+        
+    def mass_final(self,mass_measured):
+        """
+        get the mass that ends up in bead
+        """
+        return mass_measured * self.measured_to_final_conversion
+
+    @property
+    def final_to_measured_conversion(self):
+        return self.measured.mass/self.final.mass
+        
+    def mass_measured(self,mass_final=1.0):
+        """
+        get mass measured of mass_final
+        """
+        return mass_final * self.final_to_measured_conversion
+
+    def to_dict(self):
+        return {k.lstrip('_'):v for k,v in self.__dict__.iteritems()}
+        
+    def __repr__(self):
+        return repr(self.to_dict())
+
+    def __str__(self):
+        return str(self.to_dict())
+
+
+
+#TODO: copy or reference to stuff?
     
-
-
-class MyFormulaCollection(object):
+class CompoundCollection(object):
     """
-    collection of formulas
+    collection of compounds
     """
+
 
     def __init__(self,formulas=[]):
         """
-        create a collection of formulas
+        Parameters
+        ----------
+        formulas : list
+          list of strings, compounds, or dicts to be passed to CompoundVolatile
         """
-
         self.formulas = formulas
+
 
     @property
     def formulas(self):
-        return [MyFormula(**x) for x in self._formulas]
+        return self._formulas 
 
     @formulas.setter
     def formulas(self,formulas):
         #parsing formulas
         self._formulas = [self._parse_formula(x) for x in formulas]
 
-    def longnames(self):
-        return [x.longname for x in self.formulas]
 
+    def _parse_formula(self,formula):
+        
+        # if _is_dict_like(formula) and 'measured' in formula:
+        #     #is a dictionary to be passed as kward to CompoundVolatile
+        #     r = CompoundVolatile(**formula)
+        # # elif isinstance(formula,CompoundVolatile):
+        # #     #return reference to this formula
+        # #     r = formula
+        # else:
+        try:
+            return CompoundVolatile(formula)
+        except:
+            raise ValueError('bad formula',formula)
+        
+
+    @property
     def names(self):
         return [x.name for x in self.formulas]
 
-    def _parse_formula(self,formula):
-        #self._formulas contains dictionaries to
-        #be passed to MyFormula
-        #i.e, {formula=somthing,name=something}
-        if isinstance(formula,dict) and 'formula' in formula.keys():
-            return formula
-        elif isinstance(formula,MyFormula):
-            return dict(formula=formula._formula,name=formula.name,mass_fraction_volatile=formula.mass_fraction_volatile)
-        else:
-            return dict(formula=str(formula))
-
+    def keys(self):
+        return self.names
+    
     def _parse_key(self,key):
         if type(key) is int:
             return key
         else:
             #first try on longnames
-            f = self.formulas
-            longnames = self.longnames()
-            if key in longnames:
-                return longnames.index(key)
-
-            names = self.names()
+            names = self.names
             if key in names:
                 return names.index(key)
+            else:
+                raise IndexError('key not found',key)
 
-        raise IndexError('no key found for',key)
-        
-    def __getitem__(self,key):        
-        return self.formulas[self._parse_key(key)]
+    def __getitem__(self,key):
+        if isinstance(key,slice):
+            d = self.to_dict()
+            d['formulas'] = d['formulas'][key]
+            return CompoundCollection(**d)
+        else:
+            return self.formulas[self._parse_key(key)]
 
     def __setitem__(self,key,value):
-
-
         self._formulas[self._parse_key(key)] = self._parse_formula(value)
 
     def __delitem__(self,key):
         del self._formulas[key]
 
     def append(self,value):
-        self._formulas.append(self._parse_formula(value))
+        self._formuals.append(self._parse_key(value))
 
 
     def __getattr__(self,name):
-        if name in self.longnames()+self.names():
+        if name in self.keys():
             return self.__getitem__(name)
 
+    def __add__(self,value):
+        """
+        add formula and return new collections
+        """
+        return CompoundCollection(self._formulas + value)
 
+    def copy(self):
+        r = CompoundCollection()
+        r.__dict__ = self.__dir__.copy()
+        
     def __dir__(self):
         heritage = dir(super(self.__class__, self)) # inherited attributes
         hide = [] #attributes to hide
-        new = list(set(self.names() + self.longnames()))
+        new = self.keys()
         show = [k for k in new if k not in heritage + hide]
         return sorted(heritage + show)    
+    
+    def to_dict(self):
+        return {k.lstrip('_'):v for k,v in self.__dict__.iteritems()}
 
-        
+    def to_list(self):
+        return [x.to_dict() for x in self.formulas]
+
     def __repr__(self):
-        return repr([repr(x) for x in self.formulas])
-
+        return repr(self.to_dict())
     def __str__(self):
-        return str([str(x) for x in self.formulas])
+        return str(self.to_dict())
+        
+
+    def append(self,value):
+        self._formulas.append(self._parse_formula(value))
+
+    
+
 
 
 class glass(object):
@@ -334,7 +518,7 @@ class glass(object):
     class for forward glass calculation
     """
     
-    def __init__(self,targets={},sources=[],matrix='LiB4O7'):
+    def __init__(self,targets={},sources=[],matrix=Compound('LiB4O7',name='lithium_borate')):
         """
         initialize glass object
         
@@ -351,7 +535,7 @@ class glass(object):
         """
         
         self._targets = superdict(None,targets)
-        self._sources = MyFormulaCollection(sources)
+        self._sources = CompoundCollection(sources)
         self.matrix = matrix 
 
 
@@ -369,30 +553,51 @@ class glass(object):
 
     @matrix.setter
     def matrix(self,value):
-        self._matrix = MyFormula(value)
+        self._matrix = CompoundVolatile(value)
 
+
+    def check_change(self):
+        """
+        check sources for changes in target atoms
+        """
+        for atom in self.targets.keys():
+            for source in self.sources + [self.matrix]:
+                if source.changes(atom):
+                    raise ValueError('change from measure to final',atom,source)
 
     def _get_LHS(self):
+        """
+        get RHS of linear system
+        
+        RHS is RHS of following system:
+        
+        rows[0:natoms_spec]:
+        sum_{y: x in y}(MF(x,y)*M(y))=MF(x,mix)*mass_total
+        
+        row[-1]:
+        sum(M(y)*final(y)/measured(y))=mass_total
+        
+        where 
+        M(y)=mass of mol y
+        MF(x,y)=mass fraction of x in mol y=(nu_x MW_x)/MW_y
+        """
+        
         #build matrix equation
+        
         A = np.zeros([len(self._targets)+1]*2)
-        print 'shape',A.shape
+        #
 
-        for irow,atom in enumerate(self.targets.keys()):
-            for icol,source in enumerate(self.sources):
-                A[irow,icol] = source.mass_fraction[atom]
+        for icol,source in enumerate(self.sources + [self.matrix]):
+            for irow,atom in enumerate(self.targets.keys()):
+                A[irow,icol] = source.measured.mass_fraction[atom]
 
-            #add in the mass fraction from the matrix?
-            A[irow,-1] = self._matrix.mass_fraction[atom]
-
-        #add in total mass row
-        for icol,source in enumerate(self.sources):
-            A[-1,icol] = source.mass_fraction_non_volatile
-        #add in total mass row for matrix
-        A[-1,-1] = self.matrix.mass_fraction_non_volatile
-        return A
+            #add in total mass row
+            A[-1,icol] = source.measured_to_final_conversion
+        
         if np.linalg.det(A)==0:
             raise ValueError('singular matrix')
         return A
+    
     def _get_RHS(self,mass_total):
         y = np.zeros(len(self._targets)+1)
         for irow,atom in enumerate(self.targets):
@@ -402,137 +607,14 @@ class glass(object):
 
         return y
 
-            
-
-    
-        
-        
-# from collections import OrderedDict 
-# from collections import defaultdict 
-# from collections import namedtuple  
-
-# singleatom=namedtuple('singleatom',['mass_fraction','atoms'])
 
 
+    def get_solution(self,total):
 
-# class MyFormula(object):
-#     """
-#     interface to periodictable
-#     """
-    
-#     def __init__(self,formula=None):
-#         """
-#         create a formula with string atom name access
-        
-#         Parameters
-#         ----------
-#         formula: input formula
-#           -string (to be parsed by perodictable.formula)
-#           -periodictable.formula
-#         """
-        
-#         self.formula = formula
-#         #self._formula = PT.formula(formula)
-        
-#     @property
-#     def formula(self):
-#         print 'hello'
-#         return self._formula
-    
-#     @formula.setter
-#     def formula(self,formula):
-#         self._formula = PT.formula(formula)
-    
-#     @property
-#     def atoms(self):
-#         return defaultdict(int,{str(k):v for k,v in self.formula.atoms.iteritems()})
-    
-#     @property
-#     def mass_fraction(self):
-#         return defaultdict(float,{str(k):v for k,v in self.formula.mass_fraction.iteritems()})
-        
-    
-#     def __repr__(self):
-#         return repr(self._formula)
-    
-#     def __getitem__(self,key):
-#         return singleatom(mass_fraction=self.mass_fraction[key],atoms=self.atoms[key])
-    
-#     def __getattr__(self,name):
-#         if hasattr(self._formula,name):
-#             return getattr(self._formula,name)
-        
-#     def __dir__(self):
-#         #heritage = dir(super(self.__class__, self)) # inherited attributes
-#         heritage = dir(type(f1))
-#         hide = [] #attributes to hide
-#         new = self.__dict__.keys() + dir(self._formula)
-#         show = [k for k in new if k not in heritage + hide]
-#         return sorted(heritage + show)    
-    
-            
-    
-# class MyMix(object):
-#     """
-#     interface to periodictable
-#     """
-    
-#     def __init__(self,formula=None):
-#         """
-#         create a formula with string atom name access
-        
-#         Parameters
-#         ----------
-#         formula: dict
-#           {'atom':mass}
-#         """
-        
-#         self.formula = formula
-        
-#     def __getitem__(self,key):
-#         return singleatom(mass_fraction=self.mass_fraction[key],atoms=self.atoms[key])
-    
-            
-#     @property
-#     def formula(self):
-#         return PT.formula(self._formula)
-    
-#     @formula.setter
-#     def formula(self,value):
-#         if isinstance(value,(str,unicode,PT.formulas.Formula)):
-#             self._mix_dic = {str(value):1.0}
-#             self._formula = my_mix_by_weight(self._mix_dic)
-#         elif isinstance(value,(list,tuple)):
-#             self._mix_dic = {str(k):v for k,v in value}
-#         else:
-#             self._mix_dic = value
-            
-#         self._formula = my_mix_by_weight(self._mix_dic)
-    
-#     @property
-#     def atoms(self):
-#         return defaultdict(int,{str(k):v for k,v in self.formula.atoms.iteritems()})
-    
-#     @property
-#     def mass_fraction(self):
-#         return defaultdict(float,{str(k):v for k,v in self.formula.mass_fraction.iteritems()})
-        
-    
-#     def __repr__(self):
-#         return repr(self.formula)
-    
-#     def __getitem__(self,key):
-#         return singleatom(mass_fraction=self.mass_fraction[key],atoms=self.atoms[key])
-    
-#     def __getattr__(self,name):
-#         if hasattr(self._formula,name):
-#             return getattr(self._formula,name)
-        
-#     def __dir__(self):
-#         #heritage = dir(super(self.__class__, self)) # inherited attributes
-#         heritage = dir(type(f1))
-#         hide = [] #attributes to hide
-#         new = self.__dict__.keys() + dir(self._formula)
-#         show = [k for k in new if k not in heritage + hide]
-#         return sorted(heritage + show)    
-        
+        x=np.linalg.solve(self._get_LHS(),self._get_RHS(total))
+        return OrderedDict(zip(self.sources.names+[self.matrix.name],x))
+
+    def to_dict(self):
+        return {k.lstrip('_'):v for k,v in self.__dict__.iteritems()}
+
+
