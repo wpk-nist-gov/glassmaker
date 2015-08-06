@@ -4,6 +4,10 @@ from collections import OrderedDict,defaultdict
 import numpy as np
 
 
+#todo : consider changing _formula representation in Compound to list
+#of tuples
+
+
 #dict class wich has order and default values
 class superdict(OrderedDict):
     """
@@ -35,30 +39,47 @@ class superdict(OrderedDict):
         """
         return self.values()[key]
 
-def my_mix_by_weight(data,scale=False):
+
+    def to_list(self):
+        return zip(self.keys(),self.values())
+
+
+def get_formula(data,scale=False):
     """
-    create a mix by weight from data
+    recursivily create formula
     
     Parameters
     ----------
-    data : list or dict
-     If list, [('atom',mass),...]
-     If dict, {'atom':mass,...}
+    data : list, dict, or string
+     if string, get formula of string.
+     if list, of form [(formula,mass_frac),...]
+     if dict, of form {formula:mass_frac,...}
+     
+    scale : bool
+     if false, don't scale mix (default)
+     if true, scale mix
      
     Returns
     -------
-    formula: periodictable.formulas.formula
-     mixture formula
+    formula : periodic.table.Formula
     """
-    
-    if isinstance(data,(list,tuple)):
+    if isinstance(data,PTFormula):
+        return data
+    elif isinstance(data,Compound):
+        return data.formula
+    elif _is_string_like(data):
+        return PT.formula(data)
+    elif _is_list_like(data):
         pairs = data[:]
+    elif _is_dict_like(data):
+        pairs = list(data.iteritems())
+    
     else:
-        pairs = [(k,v) for k,v in data.iteritems()]
-    
-    pairs = [(PT.formula(f),q) for f,q in pairs if q > 0]
+        raise ValueError('bad formula',data)
 
-    
+
+    pairs = [(get_formula(f),m) for f,m in pairs if m>0]
+
     result = PT.formula()
     if len(pairs) > 0:
         # cell mass = mass
@@ -76,6 +97,51 @@ def my_mix_by_weight(data,scale=False):
             volume = sum(q/f.density for f,q in pairs)/scale
             result.density = result.mass/volume
     return result
+    
+
+    
+
+# def my_mix_by_weight(data,scale=False):
+#     """
+#     create a mix by weight from data
+    
+#     Parameters
+#     ----------
+#     data : list or dict
+#      If list, [('atom',mass),...]
+#      If dict, {'atom':mass,...}
+     
+#     Returns
+#     -------
+#     formula: periodictable.formulas.formula
+#      mixture formula
+#     """
+    
+#     if isinstance(data,(list,tuple)):
+#         pairs = data[:]
+#     else:
+#         pairs = [(k,v) for k,v in data.iteritems()]
+    
+#     pairs = [(PT.formula(f),q) for f,q in pairs if q > 0]
+
+    
+#     result = PT.formula()
+#     if len(pairs) > 0:
+#         # cell mass = mass
+#         # target mass = q
+#         # cell mass * n = target mass
+#         #   => n = target mass / cell mass
+#         #        = q / mass
+#         if scale: 
+#             scale = min(q/f.mass for f,q in pairs)
+#         else:
+#             scale = 1.0
+#         for f,q in pairs:
+#             result += ((q/f.mass)/scale) * f
+#         if all(f.density for f,_ in pairs):
+#             volume = sum(q/f.density for f,q in pairs)/scale
+#             result.density = result.mass/volume
+#     return result
 
 
 ##################################################
@@ -135,12 +201,9 @@ class Compound(object):
 
         name : name of compound
         """
-        self.name = name
         self.formula = formula
-
-        if name is not None:
-            "overide name"
-            self.name = name
+        #overide name?
+        self.name = name
 
 
     ###################################################
@@ -148,7 +211,7 @@ class Compound(object):
     @property
     def formula(self):
         if isinstance(self._formula,OrderedDict):
-            return my_mix_by_weight(self._formula)
+            return get_formula(self._formula)
         else:
             return PT.formula(self._formula)
 
@@ -217,7 +280,9 @@ class Compound(object):
 
     @name.setter
     def name(self,value):
-        self._name = value
+        if value is not None:
+            self._name = value
+        
 
     @property
     def longname(self):
@@ -244,7 +309,7 @@ class Compound(object):
         return {k.lstrip('_'):v for k,v in self.__dict__.iteritems()}
         
     def __repr__(self):
-        return repr(self.to_dict())
+        return "Compound(%s)"%repr(self.to_dict())
 
     def __str__(self):
         return str(self.to_dict())
@@ -278,30 +343,28 @@ class CompoundVolatile(object):
 
         Parameters
         ----------
-        measured : formula like
-         formula for measured compound
+        measured,final : formula like
+         formula for measured and final compounds (string, mass_mix dict, Compound)
 
-        final : formula like
-         formula in final state
+        Notes
+        -----
+        if pass CompoundVolatile.to_dict() or CompoundVolatile, will create a copied object
         """
 
-        self.name = name
-
         if _is_dict_like(measured) and 'measured' in measured:
-            #dictionary to be parsed
             self.__dict__ = CompoundVolatile(**measured).__dict__
         elif isinstance(measured,CompoundVolatile):
             self.__dict__ = measured.__dict__.copy()
         else:
             self.measured = measured
             self.final = final
-        #overide name?
-        if name is not None:
-            self._name = name
 
+        #overide name?
+        self.name = name
 
     @property
     def measured(self):
+        #return self.__dict__.get('_measured',None)
         return self._measured
 
     @measured.setter
@@ -310,16 +373,14 @@ class CompoundVolatile(object):
 
     @property
     def final(self):
-        if self._final is None:
-            return self._measured
+        if self.__dict__.get('_final',None) is None:
+            return self.measured
         else:
             return self._final
 
     @final.setter
     def final(self,value):
-        if value is None:
-            self._final = None
-        else:
+        if value is not None:
             self._final = Compound(value)
 
     @property
@@ -327,7 +388,7 @@ class CompoundVolatile(object):
         """
         return, in order, name, measured.name, measured.longname
         """
-        if self._name is not None:
+        if self.__dict__.get('_name',None) is not None:
             return self._name
         elif self.measured.name is not None:
             return self.measured.name
@@ -336,7 +397,8 @@ class CompoundVolatile(object):
 
     @name.setter
     def name(self,value):
-        self._name = value
+        if value is not None:
+            self._name = value
 
             
     def copy(self):
@@ -348,17 +410,19 @@ class CompoundVolatile(object):
         return r
         
             
-    def changes(self,atom):
+    def check_atom(self,atom,significant=5):
         """
-        check if specified atom changes between measured and final
+        check if specified atom changes between measured and final to
+        significant figures
         """
 
         x0 = self.measured.mass_fraction[atom] * self.measured.mass
         x1 = self.final.mass_fraction[atom] *self.final.mass
-        if x0 != x1:
-            return True
-        else:
-            return False
+        try:
+            np.testing.assert_approx_equal(x0,x1,significant=significant)
+        except:
+            raise ValueError('atom %s chanes by %.5e'%(atom,x0-x1))
+
 
     @property
     def measured_to_final_conversion(self):
@@ -384,10 +448,18 @@ class CompoundVolatile(object):
         return mass_final * self.final_to_measured_conversion
 
     def to_dict(self):
-        return {k.lstrip('_'):v for k,v in self.__dict__.iteritems()}
+        d={}
+        for k,v in self.__dict__.iteritems():
+            kk = k.lstrip('_')
+            try:
+                vv = v.to_dict()
+            except:
+                vv = v
+            d[kk] = vv
+        return d
         
     def __repr__(self):
-        return repr(self.to_dict())
+        return "CompoundVolatile(%s)"%repr(self.to_dict())
 
     def __str__(self):
         return str(self.to_dict())
@@ -409,7 +481,10 @@ class CompoundCollection(object):
         formulas : list
           list of strings, compounds, or dicts to be passed to CompoundVolatile
         """
-        self.formulas = formulas
+        if _is_dict_like(formulas) and 'formulas' in formulas:
+            self.formulas = formulas['formulas']
+        else:
+            self.formulas = formulas
 
 
     @property
@@ -424,13 +499,6 @@ class CompoundCollection(object):
 
     def _parse_formula(self,formula):
         
-        # if _is_dict_like(formula) and 'measured' in formula:
-        #     #is a dictionary to be passed as kward to CompoundVolatile
-        #     r = CompoundVolatile(**formula)
-        # # elif isinstance(formula,CompoundVolatile):
-        # #     #return reference to this formula
-        # #     r = formula
-        # else:
         try:
             return CompoundVolatile(formula)
         except:
@@ -495,13 +563,25 @@ class CompoundCollection(object):
         return sorted(heritage + show)    
     
     def to_dict(self):
-        return {k.lstrip('_'):v for k,v in self.__dict__.iteritems()}
+        # d={}
+        # for k,v in self.__dict__.iteritems():
+        #     kk = k.lstrip('_')
+        #     try:
+        #         vv = v.to_dict()
+        #     except:
+        #         vv = v
+        #     d[kk] = vv
+        # return d
+        # return {k.lstrip('_'):v for k,v in
+        # self.__dict__.iteritems()}
+        return dict(formulas=self.to_list())
 
     def to_list(self):
         return [x.to_dict() for x in self.formulas]
 
     def __repr__(self):
-        return repr(self.to_dict())
+        return "CompoundCollection(%s)"%repr(self.to_dict())
+    
     def __str__(self):
         return str(self.to_dict())
         
@@ -556,13 +636,15 @@ class glass(object):
         self._matrix = CompoundVolatile(value)
 
 
-    def check_change(self):
+    def check_atom(self):
         """
         check sources for changes in target atoms
         """
         for atom in self.targets.keys():
             for source in self.sources + [self.matrix]:
-                if source.changes(atom):
+                try:
+                    source.check_atom(atom)
+                except:
                     raise ValueError('change from measure to final',atom,source)
 
     def _get_LHS(self):
@@ -609,12 +691,19 @@ class glass(object):
 
 
 
-    def get_solution(self,total):
-
+    def get_solution(self,mass_bead):
+        """
+        find solution
+        """
+        
         x=np.linalg.solve(self._get_LHS(),self._get_RHS(total))
         return OrderedDict(zip(self.sources.names+[self.matrix.name],x))
 
+    # def to_dict(self):
+    #     return {k.lstrip('_'):v for k,v in self.__dict__.iteritems()}
+
+
     def to_dict(self):
-        return {k.lstrip('_'):v for k,v in self.__dict__.iteritems()}
+        return dict(targets=self.targets.to_list(),sources=self.sources.to_dict(),matrix=self.matrix.to_dict())
 
-
+    
