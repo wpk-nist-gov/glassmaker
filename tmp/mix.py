@@ -314,6 +314,9 @@ class Compound(object):
     def __str__(self):
         return str(self.to_dict())
 
+    def _repr_html_(self):
+        return "<p> Compound('{0}',{1}) </p>".format(self._formula,self.name)
+
         
     def __dir__(self):
         heritage = dir(type(self.formula))
@@ -598,23 +601,23 @@ class glass(object):
     class for forward glass calculation
     """
     
-    def __init__(self,targets={},sources=[],matrix=Compound('LiB4O7',name='lithium_borate')):
+    def __init__(self,targets=[],sources=[],matrix=Compound('LiB4O7',name='lithium_borate')):
         """
         initialize glass object
         
         Parameters
         ----------
-        target : dict/orderedDict/list of tups
-          Ordered{'atom':mass_fraction,...}
+        target : list
+          list of target elements
           
         source : list
           ['source1','source2',...]
           
         matrix : str
-          string formula for matrix
+          string formula for matrix (default Compound('LiB4O7',name='lithium_borate'))
         """
         
-        self._targets = superdict(None,targets)
+        self._targets = targets
         self._sources = CompoundCollection(sources)
         self.matrix = matrix 
 
