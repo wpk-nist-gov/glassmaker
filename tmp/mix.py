@@ -3,7 +3,7 @@ from  periodictable.formulas import Formula as PTFormula
 from collections import OrderedDict,defaultdict
 import numpy as np
 
-
+import pandas as pd
 #todo : consider changing _formula representation in Compound to list
 #of tuples
 
@@ -101,47 +101,6 @@ def get_formula(data,scale=False):
 
     
 
-# def my_mix_by_weight(data,scale=False):
-#     """
-#     create a mix by weight from data
-    
-#     Parameters
-#     ----------
-#     data : list or dict
-#      If list, [('atom',mass),...]
-#      If dict, {'atom':mass,...}
-     
-#     Returns
-#     -------
-#     formula: periodictable.formulas.formula
-#      mixture formula
-#     """
-    
-#     if isinstance(data,(list,tuple)):
-#         pairs = data[:]
-#     else:
-#         pairs = [(k,v) for k,v in data.iteritems()]
-    
-#     pairs = [(PT.formula(f),q) for f,q in pairs if q > 0]
-
-    
-#     result = PT.formula()
-#     if len(pairs) > 0:
-#         # cell mass = mass
-#         # target mass = q
-#         # cell mass * n = target mass
-#         #   => n = target mass / cell mass
-#         #        = q / mass
-#         if scale: 
-#             scale = min(q/f.mass for f,q in pairs)
-#         else:
-#             scale = 1.0
-#         for f,q in pairs:
-#             result += ((q/f.mass)/scale) * f
-#         if all(f.density for f,_ in pairs):
-#             volume = sum(q/f.density for f,q in pairs)/scale
-#             result.density = result.mass/volume
-#     return result
 
 
 ##################################################
@@ -210,8 +169,10 @@ class Compound(object):
     #formula
     @property
     def formula(self):
-        if isinstance(self._formula,OrderedDict):
-            return get_formula(self._formula)
+        if not isinstance(self._formula,str):
+            raise ValueError('bad _formula',self._formula)
+        # if isinstance(self._formula,OrderedDict):
+        #     return get_formula(self._formula)
         else:
             return PT.formula(self._formula)
 
@@ -224,14 +185,14 @@ class Compound(object):
             self._formula = str(formula)
 
         elif _is_list_like(formula):
-            self._formula = OrderedDict(formula)
+            self._formula = str(get_formula(formula))#OrderedDict(formula)
 
         elif _is_dict_like(formula):
             if 'formula' in formula:
                 #is a dictionary to be sent to Compound
                 self.__dict__ = Compound(**formula).__dict__
             else:
-                self._formula = OrderedDict(formula)
+                self._formula = str(get_formula(formula))#OrderedDict(formula)
             
 
         elif isinstance(formula,Compound):
@@ -249,16 +210,19 @@ class Compound(object):
             #all good
             pass
         
-        elif isinstance(self._formula,OrderedDict):
-            #make sure have string rep for each formula
-            self._formula = OrderedDict([(str(k),v) for k,v in self._formula.iteritems()])
+        # elif isinstance(self._formula,OrderedDict):
+        #     #make sure have string rep for each formula
+        #     self._formula = OrderedDict([(str(k),v) for k,v in self._formula.iteritems()])
         else:
             raise ValueError('bad formula')
             
 
 
     @property
-    def sformula(self):
+    def strformula(self):
+        """
+        return string formula
+        """
         return self._formula
         
     @property
@@ -381,6 +345,7 @@ class CompoundVolatile(object):
         else:
             return self._final
 
+
     @final.setter
     def final(self,value):
         if value is not None:
@@ -468,6 +433,26 @@ class CompoundVolatile(object):
         return str(self.to_dict())
 
 
+    def to_frame(self):
+        measured = self.measured.strformula
+        final = self.final.strformula
+
+        if final == measured:
+            final = '--'
+            
+        return pd.DataFrame(np.array([self.name,
+                                      measured,
+                                      final]).reshape(1,-1),
+                                columns=['name','measured','final'])
+
+
+    def _repr_html_(self):
+        """
+        table representation
+        """
+
+        return self.to_frame()._repr_html_()        
+
 
 #TODO: copy or reference to stuff?
     
@@ -554,6 +539,10 @@ class CompoundCollection(object):
         """
         return CompoundCollection(self._formulas + value)
 
+    def append(self,value):
+        self._formulas.append(self._parse_formula(value))
+
+    
     def copy(self):
         r = CompoundCollection()
         r.__dict__ = self.__dir__.copy()
@@ -589,10 +578,16 @@ class CompoundCollection(object):
         return str(self.to_dict())
         
 
-    def append(self,value):
-        self._formulas.append(self._parse_formula(value))
+    def to_frame(self):
+        if len(self._formulas)>0:
+            return pd.concat([x.to_frame() for x in
+                               self.formulas]).reset_index(drop=True)
+        else:
+            return pd.DataFrame()
+        
 
-    
+    def _repr_html_(self):
+        return self.to_frame()._repr_html_()
 
 
 
