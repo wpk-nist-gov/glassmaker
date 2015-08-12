@@ -169,10 +169,11 @@ class Compound(object):
     #formula
     @property
     def formula(self):
-        if not isinstance(self._formula,str):
-            raise ValueError('bad _formula',self._formula)
-        # if isinstance(self._formula,OrderedDict):
-        #     return get_formula(self._formula)
+        # if not isinstance(self._formula,str):
+        #     raise ValueError('bad _formula',self._formula)
+        #if isinstance(self._formula,OrderedDict):
+        if _is_list_like(self._formula):
+            return get_formula(self._formula)
         else:
             return PT.formula(self._formula)
 
@@ -185,14 +186,17 @@ class Compound(object):
             self._formula = str(formula)
 
         elif _is_list_like(formula):
-            self._formula = str(get_formula(formula))#OrderedDict(formula)
-
+            #self._formula = str(get_formula(formula))#OrderedDict(formula)
+            self._formula = formula
+            
         elif _is_dict_like(formula):
             if 'formula' in formula:
                 #is a dictionary to be sent to Compound
                 self.__dict__ = Compound(**formula).__dict__
             else:
-                self._formula = str(get_formula(formula))#OrderedDict(formula)
+                #self._formula =
+                #str(get_formula(formula))#OrderedDict(formula)
+                self._formula = [(k,v) for k,v in formula.iteritems()]
             
 
         elif isinstance(formula,Compound):
@@ -210,9 +214,11 @@ class Compound(object):
             #all good
             pass
         
-        # elif isinstance(self._formula,OrderedDict):
-        #     #make sure have string rep for each formula
-        #     self._formula = OrderedDict([(str(k),v) for k,v in self._formula.iteritems()])
+        #elif isinstance(self._formula):
+            #self._formula = OrderedDict([(str(k),v) for k,v in self._formula.iteritems()])
+        elif _is_list_like(self._formula):
+            #make sure have string rep for each formula
+            pass
         else:
             raise ValueError('bad formula')
             
@@ -223,7 +229,7 @@ class Compound(object):
         """
         return string formula
         """
-        return self._formula
+        return str(self.formula)#self._formula
         
     @property
     def atoms(self):
@@ -235,7 +241,10 @@ class Compound(object):
         return superdict(0.0,[(str(k),v) for k,v in self.formula.mass_fraction.iteritems()])
         #return defaultdict(float,[(str(k),v) for k,v in self.formula.mass_fraction.iteritems()])
 
-
+    def mass_fraction_round(self,round=5):
+        return superdict(0.0,[(str(k),np.round(v,round)) for k,v in self.formula.mass_fraction.iteritems()])
+        
+        
     ###################################################
     #name
     @property
@@ -491,7 +500,8 @@ class CompoundCollection(object):
             return CompoundVolatile(formula)
         except:
             raise ValueError('bad formula',formula)
-        
+
+
 
     @property
     def names(self):
@@ -525,9 +535,6 @@ class CompoundCollection(object):
     def __delitem__(self,key):
         del self._formulas[key]
 
-    def append(self,value):
-        self._formuals.append(self._parse_key(value))
-
 
     def __getattr__(self,name):
         if name in self.keys():
@@ -542,10 +549,14 @@ class CompoundCollection(object):
     def append(self,value):
         self._formulas.append(self._parse_formula(value))
 
+
+    def __len__(self):
+        return len(self._formulas)
+
     
     def copy(self):
         r = CompoundCollection()
-        r.__dict__ = self.__dir__.copy()
+        r.__dict__ = self.__dict__.copy()
         
     def __dir__(self):
         heritage = dir(super(self.__class__, self)) # inherited attributes
@@ -555,17 +566,6 @@ class CompoundCollection(object):
         return sorted(heritage + show)    
     
     def to_dict(self):
-        # d={}
-        # for k,v in self.__dict__.iteritems():
-        #     kk = k.lstrip('_')
-        #     try:
-        #         vv = v.to_dict()
-        #     except:
-        #         vv = v
-        #     d[kk] = vv
-        # return d
-        # return {k.lstrip('_'):v for k,v in
-        # self.__dict__.iteritems()}
         return dict(formulas=self.to_list())
 
     def to_list(self):
@@ -591,12 +591,488 @@ class CompoundCollection(object):
 
 
 
-class glass(object):
+
+
+def get_LHS(targets,sources,checks=True):
+    """
+    build `A` matrix for `A*M=y` equations
+
+    Parameters
+    ----------
+    targets: list like
+      list of target elements
+
+    sources: CompoundCollection
+      collection of source molecules and matrix
+
+
+    checks: bool
+      perform checks?
+
+
+    Returns
+    -------
+    A: array of dimension (len(targets)+1,len(targets)+1)
+      to solve for x=[mass_target[0],mass_target[1],....,mass_matrix]
+      solve A*x=y, where y=[mass_final_target[0],...mass_total]
+    """
+
+    A = np.zeros([len(targets)+1]*2)
+
+    
+
+    #print len(sources),len(targets),len(sources)
+    assert(isinstance(sources,CompoundCollection))
+    assert(len(targets)+1 == len(sources))
+
+    #build matrix
+
+    for icol,source in enumerate(sources):
+        for irow,atom in enumerate(targets):
+            A[irow,icol] = source.measured.mass_fraction[atom]
+
+        #add in total mass row
+        A[-1,icol] = source.measured_to_final_conversion
+
+    if checks and np.linalg.det(A) == 0:
+        raise ValueError('singular matrix')
+
+    
+    return A
+
+def get_RHS(mass_fracs,mass_total,checks=True):
+    """
+    get y of A*x=y
+
+    Parameters
+    ----------
+    mass_fracs : list
+     should be in order of `targets` in `get_LHS`
+
+    mass_total : float
+     total mass of bead
+
+    checks : bool
+     perform checks?
+
+    Returns
+    -------
+    y: array
+    """
+
+    y = [mf*mass_total for mf in mass_fracs]
+    y.append(mass_total)
+
+    return np.array(y)
+
+
+
+def _get_masses(targets,mass_fracs,mass_total,sources,checks=True):
+    """
+    create system to hit target mass fractions
+    """
+    
+    LHS = get_LHS(targets,sources,checks)
+    RHS = get_RHS(mass_fracs,mass_total,checks)
+
+    x = np.linalg.solve(LHS,RHS)
+    return x
+    
+
+
+
+class SingleBead(object):
+    """
+    container for mix solution
+    """
+
+    def __init__(self,sources,masses):
+        """
+        initialize mix
+
+        Parameters
+        ----------
+        souces: Compound collection like
+          sources (plus matrix) for mixture
+
+        mass_measured:
+          masses of each source and matrix
+        """
+
+
+        self._sources = CompoundCollection(sources)
+        self.masses = masses
+
+
+    @staticmethod
+    def from_targets(targets,mass,sources,matrix=None,checks=True):
+        """
+        create a single bead from sources to hit target mass fractions
+
+        Parameters
+        ----------
+        targets : dict
+         {atom:mass_frac}
+
+        mass : float
+         total mass of final bead
+
+        sources : CompoundCollection
+         sources
+
+        matrix : CompoundVolatile or None
+         if None, assume matrix in sources
+
+        check : bool
+         perform checks?
+
+        Returns
+        -------
+        b : SingleBead
+        """
+        if matrix is None:
+            sources_all = sources
+        else:
+            sources_all = sources +[matrix]
+
+        elements = targets.keys()
+        mf = [targets[k] for k in elements]
+
+        masses = _get_masses(elements,mf,mass,sources_all,checks)
+        
+        return SingleBead(sources_all,masses)
+
+
+    @property
+    def sources(self):
+        return self._sources
+
+    @property
+    def masses(self):
+        assert(len(self._masses)==len(self._sources))
+        return self._masses
+        
+    @masses.setter
+    def masses(self,value):
+        self._masses = value
+
+    @property
+    def masses_final(self):
+        """
+        masses of each source.final
+        """
+        return np.array([s.mass_final(m) for m,s in
+                 zip(self.masses,self.sources)])
+
+    @property
+    def measured_formula(self):
+        """
+        get measured compound
+        """
+        return np.array([(s.measured,m) for m,s in
+             zip(self.masses,self.sources)])
+    @property
+    def measured_compound(self):
+        return Compound(self.measured_formula)
+    
+    @property
+    def final_formula(self):
+        return [(s.final,m) for m,s in
+                zip(self.masses_final,self.sources)]
+            
+
+    @property
+    def final_compound(self):
+        """
+        mix by mass
+        """
+        return Compound(self.final_formula)
+
+    def measured_compound_filtered(self,elements,mass,fill='No'):
+        """
+        get final compound with only selected elements
+
+        Parameters
+        ----------
+        elements : list
+         list of elements to keep
+
+        mass : float
+         total mass of final bead
+
+        fill : str
+         fill element (placeholder)
+
+        Returns
+        -------
+        c : Compound
+         final bead compound
+        """
+        c = self.measured_compound
+        d={}
+        for k in elements:
+            d[k] = c.mass_fraction[k]*c.mass
+
+        d[fill] = mass - sum(d.values())
+
+        return Compound(d)
+
+
+
+    def final_compound_filtered(self,elements,mass,fill='No'):
+        """
+        same as measured_compound_filtered, but based on final_formula
+        """
+        c = self.final_compound
+
+        d={}
+        for k in elements:
+            d[k] = c.mass_fraction[k]*c.mass
+
+        d[fill] = mass - sum(d.values())
+
+        return Compound(d)
+        
+        
+
+    def to_frame(self):
+        df = self.sources.to_frame()
+        df['mass'] = self.masses
+        return df
+
+    def _repr_html_(self):
+        return self.to_frame()._repr_html_()
+
+
+
+def _condition_list(edges,centers,samples):
+    """
+    condition centers taking sample into account
+    """
+    assert(len(edges)==len(centers)+1)
+    
+    
+    edges = np.array(edges)
+    centers = np.array(centers)
+    msk = np.ones(len(centers),dtype=bool)
+    
+    #make new centers array excluding those already hit by samples
+    for s in samples:
+        idx = np.digitize([s],edges)-1
+#        print s,idx
+        if idx<0:
+            #lower than LB
+            pass
+        elif idx==len(centers):
+            #above UB
+            pass
+        else:
+            #in edges
+            #get rid of old center
+            msk[idx] = False
+    return centers[msk]
+    
+
+class Suggester(object):
+    """
+    create a series of glasses
+    """
+
+    def __init__(self,targets,nsamples=1):
+    
+        self.targets = targets
+        self.nsamples = nsamples
+        
+        self._samples = []
+
+    @property
+    def targets(self):
+        return self._targets
+
+    @targets.setter
+    def targets(self,value):
+        self._targets = value
+        
+    @property
+    def samples(self):
+        return self._samples
+        
+    def add_sample(self,**kwargs):
+        self.samples.append(kwargs)
+
+
+    def _digitize_sample(self,sample):
+        d={}
+        for k,v in sample.iteritems():
+            d[k] = np.digitize([v],self._edges[k])[0]
+        return d
+    
+
+    def set_edges(self):
+        self._edges = {}
+        self._centers = {}
+        
+        for k,r in self.targets.iteritems():
+            if isinstance(r,float):
+                edges  = np.array([-np.inf,np.inf])
+                centers = np.linspace(r,r,self.nsamples)
+            else:
+                edges =np.linspace(r[0],r[1],self.nsamples+1)
+                centers = 0.5*(edges[:-1]+edges[1:])
+
+            self._edges[k] = edges
+            self._centers[k] = centers
+            
+            
+            
+    def make_suggestion(self,force=False):
+        self.set_edges()
+        d = {}
+        for k in self.targets.keys():
+            samples = [s[k] for s in self.samples]
+            
+            #condition centers
+            centers = _condition_list(self._edges[k][:],self._centers[k][:],samples)
+            if force and len(centers)==0:
+                centers = self._centers[k][:]
+                
+            d[k] = random.sample(centers,1)[0]
+        return d
+
+    def get_state(self):
+        self.set_edges()
+        D = {}
+        for k in self.targets.keys():
+            #bounds
+            edges = list(self._edges[k])
+            lb = [-np.inf]+edges
+            ub = edges+['np.inf']
+
+            y = [[]]*(self.nsamples+2)
+
+            if len(self.samples)>0:
+                for isamp,s in enumerate(self.samples):
+                    idx = np.digitize([s[k]],edges)[0]
+                    y[idx] = y[idx] + [str(isamp)]
+
+            y = [','.join(yy) for yy in y]
+            d={}
+            d['lb']=lb
+            d['ub']=ub
+            d['sample'] = y
+            D[k] = pd.DataFrame(d)
+
+        return pd.concat(D,axis=1)#pd.DataFrame(d)
+            
+        
+                
+
+# import random
+# def build_suggestions(targets,ranges,nsamples,seed=None):
+#     """
+#     build random samples for target elements
+
+#     Parameters
+#     ----------
+#     targets : list
+#      list of target elements
+
+#     ranges : list of tuples or floats
+#      list of target ranges (min,max) or values (if float)
+
+#     nsamples : int
+#      number of samples
+
+#     seed : int
+#      random seed.  If None, no seeding.
+
+#     Returns
+#     -------
+#     y : list of dicts
+#      [{target : mass_Fraction,..},...]
+#     """
+
+#     if seed is not None:
+#         random.seed(seed)
+
+
+#     L = []
+#     for r in ranges:
+#         if isinstance(r,float):
+#             y = np.linspace(r,r,nsamples)
+#         else:
+#             y = np.linspace(r[0],r[1],nsamples)
+
+
+#         L.append(random.sample(y,nsamples))
+
+#     return [dict(zip(targets,v)) for v in zip(*L)]
+        
+            
+
+# class Suggester(object):
+#     """
+#     create a series of glasses
+#     """
+
+#     def __init__(self,targets,ranges,nsamples=1,seed=None):
+
+
+#         if _is_dict_like(targets):
+#             self.targets = targets.keys()
+#             self.ranges = [targets[k] for k in self.targets]
+#         else:
+#             self.targets = targets
+#             self.ranges = ranges
+#         self.nsamples = nsamples
+
+#         if seed is None:
+#             pass
+#         else
+#             random.seed(seed)
+        
+
+#     @property
+#     def targets(self):
+#         return self._targets
+
+#     @targets.setter
+#     def targets(self,value):
+#         self._targets = value
+
+#     @property
+#     def ranges(self):
+#         return self._ranges
+
+#     @ranges.setter
+#     def ranges(self,value):
+#         self._ranges = value
+
+
+#     def set_edges(self):
+#         self._edges = []
+#         self._centers = []
+        
+#         for r in self.ranges:
+#             if isinstance(r,float):
+#                 edges  = np.array([-np.inf,np.inf])
+#                 centers = np.linspace(r,r,nsamples)
+#             else:
+#                 edges =np.linspace(r[0],r[1],nssamples+1)
+#                 centers = 0.5*(edges[:-1]+edges[1:])
+
+#             self._edges.append(edges)
+#             self._centers.append(centers)
+
+    
+    
+
+class glass2(object):
     """
     class for forward glass calculation
     """
     
-    def __init__(self,targets=[],sources=[],matrix=Compound('LiB4O7',name='lithium_borate')):
+    def __init__(self,targets={},sources=[],matrix=Compound('LiB4O7',name='lithium_borate')):
         """
         initialize glass object
         
@@ -612,7 +1088,7 @@ class glass(object):
           string formula for matrix (default Compound('LiB4O7',name='lithium_borate'))
         """
         
-        self._targets = targets
+        self._targets = superdict(targets)
         self._sources = CompoundCollection(sources)
         self.matrix = matrix 
 
@@ -694,7 +1170,7 @@ class glass(object):
         find solution
         """
         
-        x=np.linalg.solve(self._get_LHS(),self._get_RHS(total))
+        x=np.linalg.solve(self._get_LHS(),self._get_RHS(mass_bead))
         return OrderedDict(zip(self.sources.names+[self.matrix.name],x))
 
     # def to_dict(self):
