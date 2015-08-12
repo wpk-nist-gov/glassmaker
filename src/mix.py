@@ -43,6 +43,12 @@ class superdict(OrderedDict):
     def to_list(self):
         return zip(self.keys(),self.values())
 
+    def to_series(self):
+        return pd.Series(self)
+    
+    # def __repr__(self):
+    #     return pd.Series(self).__repr__
+
 
 def get_formula(data,scale=False):
     """
@@ -974,7 +980,10 @@ class TargetMassFracSuggester(object):
 
     @targets.setter
     def targets(self,value):
-        self._targets = value
+        if isinstance(value,(OrderedDict,superdict,list)):
+            self._targets = OrderedDict(value)
+        else:
+            raise ValueError('target dict must be orderdict, superdict, or list')
         
     @property
     def samples(self):
