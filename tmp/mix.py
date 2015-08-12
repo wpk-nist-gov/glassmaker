@@ -2,8 +2,8 @@ import periodictable as PT
 from  periodictable.formulas import Formula as PTFormula
 from collections import OrderedDict,defaultdict
 import numpy as np
-
 import pandas as pd
+import random
 #todo : consider changing _formula representation in Compound to list
 #of tuples
 
@@ -123,7 +123,11 @@ def _is_string_like(val):
 def _is_iterable(x):
     return isinstance(x,Iterable)    
 
-    
+
+
+
+##################################################
+#compound
 class Compound(object):
     """
     basic Compound container
@@ -138,6 +142,7 @@ class Compound(object):
 
     mass_fraction : mass fraction of each element
 
+    to_dict() : create dictionary
 
 
     #internal storage:
@@ -164,14 +169,9 @@ class Compound(object):
         #overide name?
         self.name = name
 
-
-    ###################################################
-    #formula
+    #formula ##########
     @property
     def formula(self):
-        # if not isinstance(self._formula,str):
-        #     raise ValueError('bad _formula',self._formula)
-        #if isinstance(self._formula,OrderedDict):
         if _is_list_like(self._formula):
             return get_formula(self._formula)
         else:
@@ -188,32 +188,26 @@ class Compound(object):
         elif _is_list_like(formula):
             #self._formula = str(get_formula(formula))#OrderedDict(formula)
             self._formula = formula
-            
         elif _is_dict_like(formula):
             if 'formula' in formula:
                 #is a dictionary to be sent to Compound
                 self.__dict__ = Compound(**formula).__dict__
             else:
-                #self._formula =
-                #str(get_formula(formula))#OrderedDict(formula)
+                #self._formula = str(get_formula(formula))#OrderedDict(formula)
                 self._formula = [(k,v) for k,v in formula.iteritems()]
             
 
         elif isinstance(formula,Compound):
-            #compy data
             self.__dict__ = formula.__dict__.copy()
 
         elif isinstance(formula,PTFormula):
             self._formula = str(formula)
-            
         else:
             raise ValueError('bad formula',formula)
             
 
         if isinstance(self._formula,str):
-            #all good
             pass
-        
         #elif isinstance(self._formula):
             #self._formula = OrderedDict([(str(k),v) for k,v in self._formula.iteritems()])
         elif _is_list_like(self._formula):
@@ -222,31 +216,37 @@ class Compound(object):
         else:
             raise ValueError('bad formula')
             
-
-
+    
     @property
     def strformula(self):
         """
-        return string formula
+        return string representation of formula
         """
         return str(self.formula)#self._formula
         
     @property
     def atoms(self):
+        """
+        return mole number for each atom name
+        """
         return superdict(0,[(str(k),v) for k,v in self.formula.atoms.iteritems()])
-        #return defaultdict(int,[(str(k),v) for k,v in self.formula.atoms.iteritems()])        
     
     @property
     def mass_fraction(self):
+        """
+        mass fraction by string atom name
+        """
         return superdict(0.0,[(str(k),v) for k,v in self.formula.mass_fraction.iteritems()])
-        #return defaultdict(float,[(str(k),v) for k,v in self.formula.mass_fraction.iteritems()])
 
     def mass_fraction_round(self,round=5):
+        """
+        rounded mass fraction
+        """
         return superdict(0.0,[(str(k),np.round(v,round)) for k,v in self.formula.mass_fraction.iteritems()])
         
         
-    ###################################################
-    #name
+
+    #name ##########
     @property
     def name(self):
         return self.__dict__.get('_name',None)
@@ -256,15 +256,15 @@ class Compound(object):
         if value is not None:
             self._name = value
         
-
-    @property
-    def longname(self):
-        """
-        formula longname
-        """
-        return str(self.formula)
-        
     
+
+    
+        
+    def __getattr__(self,name):
+        if hasattr(self.formula,name):
+            return getattr(self.formula,name)
+
+
     def copy(self):
         """
         copy data to new Compound object
@@ -272,13 +272,12 @@ class Compound(object):
         r = Compound()
         r.__dict__ = self.__dict__.copy()
         return r
+
         
-    def __getattr__(self,name):
-        if hasattr(self.formula,name):
-            return getattr(self.formula,name)
-
-
     def to_dict(self):
+        """
+        return dict
+        """
         return {k.lstrip('_'):v for k,v in self.__dict__.iteritems()}
         
     def __repr__(self):
@@ -340,7 +339,6 @@ class CompoundVolatile(object):
 
     @property
     def measured(self):
-        #return self.__dict__.get('_measured',None)
         return self._measured
 
     @measured.setter
@@ -354,7 +352,6 @@ class CompoundVolatile(object):
         else:
             return self._final
 
-
     @final.setter
     def final(self,value):
         if value is not None:
@@ -363,14 +360,14 @@ class CompoundVolatile(object):
     @property
     def name(self):
         """
-        return, in order, name, measured.name, measured.longname
+        return, in order, name, measured.name, measured.strformula
         """
         if self.__dict__.get('_name',None) is not None:
             return self._name
         elif self.measured.name is not None:
             return self.measured.name
         else:
-            return self.measured.longname
+            return self.measured.strformula
 
     @name.setter
     def name(self,value):
@@ -378,13 +375,6 @@ class CompoundVolatile(object):
             self._name = value
 
             
-    def copy(self):
-        """
-        copy data to new object
-        """
-        r = CompoundVolatile()
-        r.__dict__ = self.__dict__.copy()
-        return r
         
             
     def check_atom(self,atom,significant=5):
@@ -418,7 +408,7 @@ class CompoundVolatile(object):
     def final_to_measured_conversion(self):
         return self.measured.mass/self.final.mass
         
-    def mass_measured(self,mass_final=1.0):
+    def mass_measured(self,mass_final):
         """
         get mass measured of mass_final
         """
@@ -434,6 +424,16 @@ class CompoundVolatile(object):
                 vv = v
             d[kk] = vv
         return d
+
+
+    def copy(self):
+        """
+        copy data to new object
+        """
+        r = CompoundVolatile()
+        r.__dict__ = self.__dict__.copy()
+        return r
+
         
     def __repr__(self):
         return "CompoundVolatile(%s)"%repr(self.to_dict())
@@ -443,6 +443,9 @@ class CompoundVolatile(object):
 
 
     def to_frame(self):
+        """
+        create dataframe
+        """
         measured = self.measured.strformula
         final = self.final.strformula
 
@@ -592,8 +595,10 @@ class CompoundCollection(object):
 
 
 
+#--------------------------------------------------
+# setup and solve linear system
 
-def get_LHS(targets,sources,checks=True):
+def _get_LHS(targets,sources,checks=True):
     """
     build `A` matrix for `A*M=y` equations
 
@@ -625,8 +630,14 @@ def get_LHS(targets,sources,checks=True):
     assert(isinstance(sources,CompoundCollection))
     assert(len(targets)+1 == len(sources))
 
-    #build matrix
 
+    if checks:
+        #check that atom doesn't change from measured to volatile
+        for s in sources:
+            for atom in targets:
+                s.check_atom(atom)
+    
+    #build matrix
     for icol,source in enumerate(sources):
         for irow,atom in enumerate(targets):
             A[irow,icol] = source.measured.mass_fraction[atom]
@@ -640,7 +651,7 @@ def get_LHS(targets,sources,checks=True):
     
     return A
 
-def get_RHS(mass_fracs,mass_total,checks=True):
+def _get_RHS(mass_fracs,mass_total,checks=True):
     """
     get y of A*x=y
 
@@ -672,8 +683,8 @@ def _get_masses(targets,mass_fracs,mass_total,sources,checks=True):
     create system to hit target mass fractions
     """
     
-    LHS = get_LHS(targets,sources,checks)
-    RHS = get_RHS(mass_fracs,mass_total,checks)
+    LHS = _get_LHS(targets,sources,checks)
+    RHS = _get_RHS(mass_fracs,mass_total,checks)
 
     x = np.linalg.solve(LHS,RHS)
     return x
@@ -684,9 +695,19 @@ def _get_masses(targets,mass_fracs,mass_total,sources,checks=True):
 class SingleBead(object):
     """
     container for mix solution
+
+    Attributes
+    ----------
+    sources : source compounds
+
+    masses : measured masses of souce compounds
+
+    masses
+    
+    
     """
 
-    def __init__(self,sources,masses):
+    def __init__(self,sources,masses,massTot=None,keepAtoms=None):
         """
         initialize mix
 
@@ -695,13 +716,22 @@ class SingleBead(object):
         souces: Compound collection like
           sources (plus matrix) for mixture
 
-        mass_measured:
+        mass_measured : list
           masses of each source and matrix
+
+        massTot : float
+          total mass of final measured bead
+
+        keepAtoms : list
+          atoms to keep in the final compound
         """
 
 
         self._sources = CompoundCollection(sources)
         self.masses = masses
+
+        self.massTot = massTot
+        self.keepAtoms = keepAtoms
 
 
     @staticmethod
@@ -756,8 +786,33 @@ class SingleBead(object):
     def masses(self,value):
         self._masses = value
 
+
+
     @property
-    def masses_final(self):
+    def massTot(self):
+        if self._massTot is None:
+            return self.final_compound.mass
+        else:
+            return self._massTot
+
+    @massTot.setter
+    def massTot(self,value):
+        self._massTot = value
+
+    @property
+    def keepAtoms(self):
+        if self._keepAtoms is None:
+            return self.final_compound.atoms.keys()
+        else:
+            return self._keepAtoms
+
+    @keepAtoms.setter
+    def keepAtoms(self,value):
+        self._keepAtoms = value
+        
+
+    @property
+    def _masses_final(self):
         """
         masses of each source.final
         """
@@ -765,20 +820,21 @@ class SingleBead(object):
                  zip(self.masses,self.sources)])
 
     @property
-    def measured_formula(self):
+    def _measured_formula(self):
         """
         get measured compound
         """
         return np.array([(s.measured,m) for m,s in
              zip(self.masses,self.sources)])
-    @property
-    def measured_compound(self):
-        return Compound(self.measured_formula)
     
     @property
-    def final_formula(self):
+    def measured_compound(self):
+        return Compound(self._measured_formula)
+    
+    @property
+    def _final_formula(self):
         return [(s.final,m) for m,s in
-                zip(self.masses_final,self.sources)]
+                zip(self._masses_final,self.sources)]
             
 
     @property
@@ -786,8 +842,14 @@ class SingleBead(object):
         """
         mix by mass
         """
-        return Compound(self.final_formula)
+        return Compound(self._final_formula)
 
+
+    @property
+    def bead_compound(self):
+        return self.measured_compound_filtered(self.keepAtoms,self.massTot)
+
+        
     def measured_compound_filtered(self,elements,mass,fill='No'):
         """
         get final compound with only selected elements
@@ -838,13 +900,23 @@ class SingleBead(object):
     def to_frame(self):
         df = self.sources.to_frame()
         df['mass'] = self.masses
-        return df
+        df2 = pd.DataFrame([dict(name='tot',measured='--',final='--',mass=self.massTot)])
+        df = df.append(df2)
+        return df[['name','measured','final','mass']]
 
     def _repr_html_(self):
         return self.to_frame()._repr_html_()
 
 
+    def to_dict(self):
+        return dict(sources=self.sources.to_dict(),
+                    masses = self.masses,
+                    massTot = self.massTot,
+                    keepAtoms = self.keepAtoms)
 
+
+
+#suggest next sample
 def _condition_list(edges,centers,samples):
     """
     condition centers taking sample into account
@@ -871,18 +943,29 @@ def _condition_list(edges,centers,samples):
             #get rid of old center
             msk[idx] = False
     return centers[msk]
-    
 
-class Suggester(object):
+
+
+class TargetMassFracSuggester(object):
     """
     create a series of glasses
+
+    Attributes
+    ----------
+    targets : dict
+     {'target':range}
+
+    nsamples : int
+     number of samples
+
+    samples : list
+     list of samples
     """
 
     def __init__(self,targets,nsamples=1):
     
         self.targets = targets
         self.nsamples = nsamples
-        
         self._samples = []
 
     @property
@@ -967,130 +1050,35 @@ class Suggester(object):
         
                 
 
-# import random
-# def build_suggestions(targets,ranges,nsamples,seed=None):
-#     """
-#     build random samples for target elements
-
-#     Parameters
-#     ----------
-#     targets : list
-#      list of target elements
-
-#     ranges : list of tuples or floats
-#      list of target ranges (min,max) or values (if float)
-
-#     nsamples : int
-#      number of samples
-
-#     seed : int
-#      random seed.  If None, no seeding.
-
-#     Returns
-#     -------
-#     y : list of dicts
-#      [{target : mass_Fraction,..},...]
-#     """
-
-#     if seed is not None:
-#         random.seed(seed)
 
 
-#     L = []
-#     for r in ranges:
-#         if isinstance(r,float):
-#             y = np.linspace(r,r,nsamples)
-#         else:
-#             y = np.linspace(r[0],r[1],nsamples)
 
-
-#         L.append(random.sample(y,nsamples))
-
-#     return [dict(zip(targets,v)) for v in zip(*L)]
-        
-            
-
-# class Suggester(object):
-#     """
-#     create a series of glasses
-#     """
-
-#     def __init__(self,targets,ranges,nsamples=1,seed=None):
-
-
-#         if _is_dict_like(targets):
-#             self.targets = targets.keys()
-#             self.ranges = [targets[k] for k in self.targets]
-#         else:
-#             self.targets = targets
-#             self.ranges = ranges
-#         self.nsamples = nsamples
-
-#         if seed is None:
-#             pass
-#         else
-#             random.seed(seed)
-        
-
-#     @property
-#     def targets(self):
-#         return self._targets
-
-#     @targets.setter
-#     def targets(self,value):
-#         self._targets = value
-
-#     @property
-#     def ranges(self):
-#         return self._ranges
-
-#     @ranges.setter
-#     def ranges(self,value):
-#         self._ranges = value
-
-
-#     def set_edges(self):
-#         self._edges = []
-#         self._centers = []
-        
-#         for r in self.ranges:
-#             if isinstance(r,float):
-#                 edges  = np.array([-np.inf,np.inf])
-#                 centers = np.linspace(r,r,nsamples)
-#             else:
-#                 edges =np.linspace(r[0],r[1],nssamples+1)
-#                 centers = 0.5*(edges[:-1]+edges[1:])
-
-#             self._edges.append(edges)
-#             self._centers.append(centers)
-
-    
-    
-
-class glass2(object):
+class BeadFamily(object):
     """
-    class for forward glass calculation
+    class to make and store a family of beads
     """
-    
-    def __init__(self,targets={},sources=[],matrix=Compound('LiB4O7',name='lithium_borate')):
+
+
+    def __init__(self,targets,sources,nsamples):
         """
-        initialize glass object
-        
+        initialize
+
         Parameters
         ----------
-        target : list
-          list of target elements
-          
-        source : list
-          ['source1','source2',...]
-          
-        matrix : str
-          string formula for matrix (default Compound('LiB4O7',name='lithium_borate'))
+        targets : dict
+         {'atomID':(min,max)/value...}
+
+        sources : list of Compound, CompoundVolatile, or single CompoundCollection
+         source compounds
         """
-        
-        self._targets = superdict(targets)
+
+
+        self._targets = targets.keys()
         self._sources = CompoundCollection(sources)
-        self.matrix = matrix 
+        self._suggester = TargetMassFracSuggester(targets,nsamples)
+
+
+        self._beads = []
 
 
     @property
@@ -1102,82 +1090,45 @@ class glass2(object):
         return self._sources
 
     @property
-    def matrix(self):
-        return self._matrix
+    def beads(self):
+        return self._beads
 
-    @matrix.setter
-    def matrix(self,value):
-        self._matrix = CompoundVolatile(value)
+    @property
+    def suggester(self):
+        return self._suggester
 
+    def get_suggested_targets(self):
+        return self.suggester.make_suggestion()
 
-    def check_atom(self):
+    def get_suggested_bead(self,mass):
         """
-        check sources for changes in target atoms
+        return single bead formula with suggested masses
+
+        Parameters
+        ----------
+        mass : total mass of final bead
+
+        Returns
+        -------
+        b : SingleBead
         """
-        for atom in self.targets.keys():
-            for source in self.sources + [self.matrix]:
-                try:
-                    source.check_atom(atom)
-                except:
-                    raise ValueError('change from measure to final',atom,source)
 
-    def _get_LHS(self):
+        targets = self.get_suggested_targets()
+
+        return targets,SingleBead.from_targets(targets,mass,self.sources)
+
+
+    def append(self,bead):
         """
-        get RHS of linear system
-        
-        RHS is RHS of following system:
-        
-        rows[0:natoms_spec]:
-        sum_{y: x in y}(MF(x,y)*M(y))=MF(x,mix)*mass_total
-        
-        row[-1]:
-        sum(M(y)*final(y)/measured(y))=mass_total
-        
-        where 
-        M(y)=mass of mol y
-        MF(x,y)=mass fraction of x in mol y=(nu_x MW_x)/MW_y
+        add sample
         """
+
+        self.beads.append(bead)
+        self.suggester.samples.append({k:bead.bead_compound.mass_fraction[k]
+                                       for k in self.targets})
         
-        #build matrix equation
+
+    def __delitem__(self,key):
+        del self.beads[key]
+        del self.suggester.samples[key]
         
-        A = np.zeros([len(self._targets)+1]*2)
-        #
-
-        for icol,source in enumerate(self.sources + [self.matrix]):
-            for irow,atom in enumerate(self.targets.keys()):
-                A[irow,icol] = source.measured.mass_fraction[atom]
-
-            #add in total mass row
-            A[-1,icol] = source.measured_to_final_conversion
-        
-        if np.linalg.det(A)==0:
-            raise ValueError('singular matrix')
-        return A
-    
-    def _get_RHS(self,mass_total):
-        y = np.zeros(len(self._targets)+1)
-        for irow,atom in enumerate(self.targets):
-            y[irow] = self.targets[atom]*mass_total
-
-        y[-1] = mass_total
-
-        return y
-
-
-
-    def get_solution(self,mass_bead):
-        """
-        find solution
-        """
-        
-        x=np.linalg.solve(self._get_LHS(),self._get_RHS(mass_bead))
-        return OrderedDict(zip(self.sources.names+[self.matrix.name],x))
-
-    # def to_dict(self):
-    #     return {k.lstrip('_'):v for k,v in self.__dict__.iteritems()}
-
-
-    def to_dict(self):
-        return dict(targets=self.targets.to_list(),sources=self.sources.to_dict(),matrix=self.matrix.to_dict())
-
-    
