@@ -41,7 +41,7 @@ class CompoundSuggester(object):
         
         self._get_rel_dfs(rel_files)
 
-        self._get_abs_dfs(abs_files)
+        #self._get_abs_dfs(abs_files)
 
 
         self._add_IDS()
@@ -58,6 +58,20 @@ class CompoundSuggester(object):
             self._df_dict[key] = MyDF.MyDataFrame(df)
 
 
+
+    def _get_abs_dfs(self,files,encoding='utf-8'):
+        # this_dir, this_file = os.path.split(os.path.abspath(__file__))
+        # data_path = os.path.join(this_dir,'data')
+
+        for f in files:
+            #path = os.path.join(data_path,f)
+            key = os.path.splitext(os.path.basename(f))[0]
+            df = pd.read_csv(path,encoding='utf-8')
+            self._df_dict[key] = MyDF.MyDataFrame(df)
+            
+
+
+
     def _add_IDS(self):
         """
         add ID column to DataFrames
@@ -68,11 +82,14 @@ class CompoundSuggester(object):
                 df['ID'] = k
 
 
-    def query_target_all(self,target,key='Target'):
+
+    def query_target_all(self,target,key='Target',cols=['ID','Name','Formula',
+                                   'Target','mass_frac']):
 
         L=[]
         for k,df in self._df_dict.iteritems():
 
+           # L.append(df[df[key]==target][cols])
             L.append(df.query_target(target,key).basic())
 
         return pd.concat(L)
