@@ -38,7 +38,7 @@ class CompoundSuggester(object):
                        abs_files=[]):
 
         self._df_dict = OD()
-        
+
         self._get_rel_dfs(rel_files)
 
         #self._get_abs_dfs(abs_files)
