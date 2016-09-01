@@ -4,7 +4,7 @@ import pandas as pd
 import periodictable as PT
 from suggester_interface import get_compound_list, _Global_suggester
 from collections import defaultdict
-
+import SamplePlotter
 
 import mix
 
@@ -790,7 +790,7 @@ class TabSources(object):
     def nsources(self, val):
         self._nsource.value = str(val)
         self._update_sources()
-
+        
 
     def _new_source(self):
         # if len(self._ring) > 0 :
@@ -921,10 +921,13 @@ class SingleBead(object):
         self._target_widget = widgets.HBox(children=tuple(widgets.Text(description=x, layout=text_layout)   for x in targets),
                      layout=widgets.Layout(overflow_x='scroll', width='800px',height='',flex_direction='row',display='flex')
         )
+        # add submission of target to target Text widgets
+        for w in self._target_widget.children:
+            w.observe(self._make_suggestion)
 
         # button to calculate suggested mass
-        self._button_suggest =  widgets.Button(description='Target')
-        self._button_suggest.on_click(self._make_suggestion)
+        #self._button_suggest =  widgets.Button(description='Target')
+        #self._button_suggest.on_click(self._make_suggestion)
 
 
         #each row
@@ -934,18 +937,26 @@ class SingleBead(object):
                                               widgets.Label(value='Mass Suggested',width=_num_width),
                                               widgets.Label(value='Mass Measured',width=_num_width)))
 
+        # total row
         self._total_row = self._get_single_row('','Final Total', '', '')
-        self._source_rows = [self._get_single_row(str(i), s.name, '', '') for
+        # observe for update of mass suggested
+        self._total_row.children[-2].observe(self._make_suggestion)
+        self._total_row.children[-1].observe(self._get_final)
+
+        self._source_rows = [self._get_single_row(str(i), s.name, '', '', Label_measured=True) for
                              i,s in enumerate(sources)]
 
-
         #button to calculate final
-        self._button_final = widgets.Button(description='Final')
-        self._button_final.on_click(self._get_final)
+        # self._button_final = widgets.Button(description='Final')
+        # self._button_final.on_click(self._get_final)
+
         self._final = widgets.Text(width='500px')
+        #self._final.observe(self._dummy,names='value')
+        self._final_box = widgets.VBox(children=(widgets.Label('Final composition'),
+                                             self._final))
 
         items = [self._control_widget, self._target_widget, self._header,  self._total_row] + self._source_rows + \
-                [self._button_suggest,self._button_final,self._final]
+                [self._final] #[self._button_final,self._final]
 
         self._widgets = widgets.VBox(children=items)
 
@@ -954,14 +965,21 @@ class SingleBead(object):
     def widget(self):
         return self._widgets
 
-    @staticmethod
-    def _get_single_row(name, formula_measured, formula_final, suggested='', measured=''):
+    def _get_single_row(self, name, formula_measured, formula_final, suggested='', measured='', Label_measured=False):
+
+        if Label_measured:
+            item2 = widgets.Label
+        else:
+            item2 = widgets.Text
 
         items = (widgets.Label(value=name,width=_num_width),
                  widgets.Label(value=formula_measured, width='300px'),
                  #widgets.Label(value=formula_final, width='300px'),
-                 widgets.Text(value=suggested, width=_num_width),
+                 item2(value=suggested, width=_num_width),
                  widgets.Text(value=measured, width=_num_width))
+
+        # observe last item for final
+        items[-1].observe(self._get_final)
 
         return widgets.HBox(children=items,
                             layout=widgets.Layout(display='flex',flex_direction='row'))
@@ -987,7 +1005,7 @@ class SingleBead(object):
                                                          self._get_mass_total(col=-2),
                                                          self._sources)
             for i,mass in enumerate(self._bead_sug.masses):
-                self._source_rows[i].children[-2].value = str(mass)
+                self._source_rows[i].children[-2].value = '%.6e'%(mass)
         except:
             pass
 
@@ -1008,10 +1026,7 @@ class SingleBead(object):
     def _get_final(self,*args,**kwargs):
         try:
             # populate box with final info
-            mass_frac = (self._get_final_bead()
-                         .final_compound_filtered(elements=self._target_elements,
-                                                  mass=self._get_mass_total(col=-1))
-                         .mass_fraction)
+            mass_frac = self._get_final_mass_fraction()
 
             self._final.value = str(dict(
                 self._get_final_mass_fraction()
@@ -1055,7 +1070,7 @@ class SingleBead(object):
 
 
 
-    def to_dicts(self,include_targets=False, include_sources=False):
+    def to_dict(self,include_targets=False, include_sources=False):
         out = {}
 
         if include_targets:
@@ -1073,34 +1088,39 @@ class SingleBead(object):
         out['source_masses_suggested'] = self._get_masses(col=-2)
         out['source_masses_measured'] = self._get_masses(col=-1)
 
-        out['done'] = self._button_done.value
         return out
 
 
 
 class TabSuggester(object):
-
-    def __init__(self, targets, sources, nsamples=5):
+    
+    def __init__(self, targets, sources, nsample=5, nbin=None):
 
         self._targets = targets
         self._sources = sources
 
 
+        # setup widget
+        # bin = number of bin in sample definition
+        self._nbin = widgets.Text(description='bin', width='200px')
+        self._nbin.on_submit(self._update_progress)
 
-        #setup widget
-        self._nsample = widgets.Text(value=str(nsamples), width='100px')
-        self._nsample.on_submit(self._update_samples)
+        # sample = descrete sample taken (goal is nbin == nsample but never know)
+        self._nsample = widgets.Text(description='sample',value=str(nsample), width='200px')
+        self._nsample.on_submit(self._update_sample)
         self._button_add_sample = widgets.Button(description='add')
         self._button_add_sample.on_click(self._click_add_sample)
 
-        self._head = widgets.HBox(children=(self._nsample,
+        self._head = widgets.HBox(children=(self._nbin,
+                                            self._nsample,
                                             self._button_add_sample))
 
-        #empty tab widget
-        self._samples_widget = widgets.Tab()
+
+        # empty tab widget
+        self._sample_widget = widgets.Tab()
 
 
-        #progress frame
+        # progress frame
         self._button_update_progress = widgets.Button(description='update')
         self._button_update_progress.on_click(self._update_progress)
         self._progress_frame = widgets.HTML()
@@ -1112,48 +1132,78 @@ class TabSuggester(object):
 
         #top level box
         self._widget = widgets.VBox(children=(self._head,
-                                              self._samples_widget,
+                                              self._sample_widget,
                                               self._progress_widget))
-        self._samples = []
+        self._sample = []
 
-        self._update_samples()
+        self._update_sample()
+
+        self.nbin = nbin or nsample
 
 
     def __getitem__(self,i):
-        return self._samples[i]
-
-
-    def _update_progress(self,*args,**kwargs):
-        self._progress_frame.value = (self
-                                      .suggester
-                                      .get_state()
-                                      .style
-                                      .set_table_attributes('class="table"')
-                                      .render())
+        return self._sample[i]
 
     @property
-    def nsamples(self):
+    def nsample(self):
         try:
             return int(self._nsample.value)
         except:
             return None
 
-    @nsamples.setter
-    def nsamples(self,val):
+    @nsample.setter
+    def nsample(self,val):
         self._nsample.value = str(val)
-        self._update_samples()
+        self._update_sample()
 
-    def _update_suggester(self):
-        self._suggester = mix.TargetMassFracSuggester(targets=self._targets,
-                                                nsamples=self.nsamples)
-        
-        self._suggester._samples = []
-        for x in self._samples:
-            try:
-                val = x._get_final_mass_fraction()
-                self._suggester.add_sample(**val)
-            except:
-                pass
+
+
+    @property
+    def nbin(self):
+        try:
+            return int(self._nbin.value)
+        except:
+            return None
+
+    @nbin.setter
+    def nbin(self,val):
+        self._nbin.value = str(val)
+        self._update_progress()
+
+
+    def _update_progress(self,*args,**kwargs):
+        """
+        progress html
+        """
+
+        if not hasattr(self,'_sampleplotter'):
+            # create blank plotter
+            self._sampleplotter = SamplePlotter.SamplePlotter()
+
+        self._sampleplotter.nullify_all()
+
+        # udpate params
+        elements, bounds = zip(*(self._targets))
+        self._sampleplotter.elements = elements
+        self._sampleplotter.bounds = bounds
+        self._sampleplotter.nbin = self.nbin
+
+        # update sample
+        for d in  self.suggester.samples:
+            self._sampleplotter.add_sample(d)
+
+        self._sampleplotter.plot_all()
+
+        self._progress_frame.value = (self
+                                      ._sampleplotter
+                                      .to_html())
+
+        # self._progress_frame.value = (self
+        #                               .suggester
+        #                               .get_state()
+        #                               .style
+        #                               .set_table_attributes('class="table"')
+        #                               .render())
 
 
     @property
@@ -1162,8 +1212,31 @@ class TabSuggester(object):
         self._update_suggester()
         return self._suggester
 
+
+
+    def _update_suggester(self):
+        if not hasattr(self, '_suggester'):
+            # create blank suggester
+            self._suggester = mix.TargetMassFracSuggester(targets=[],nsamples=1)
+
+        # update targets
+        self._suggester.targets = self._targets
+        self._suggester.nsamples = self.nbin
+
+        # update sample
+        self._suggester._samples = []
+        for x in self._sample:
+            try:
+                val = x._get_final_mass_fraction()
+                self._suggester.add_sample(**val)
+            except:
+                pass
+
+
     def _new_sample(self):
-        return SingleBead(self.suggester.targets.keys(), self._sources)
+        new =  SingleBead(self.suggester.targets.keys(), self._sources)
+        new._final.observe(self._update_progress)
+        return new
 
     def _add_sample(self):
         new = self._new_sample()
@@ -1172,50 +1245,129 @@ class TabSuggester(object):
         new._button_suggest_target_mass_fraction.on_click(
             self._click_button_suggest_target_mass_fraction)
 
-        self._samples.append(new)
+        self._sample.append(new)
 
 
     def _remove_sample(self, index=-1):
-        row = self._samples.pop(index)
+        row = self._sample.pop(index)
 
     def _click_button_delete_sample(self,d):
-        L = [r._button_delete for r in self._samples]
+        L = [r._button_delete for r in self._sample]
         index = L.index(d)
         self._remove_sample(index)
         self.nsources = len(self._sources)
 
     def _click_button_suggest_target_mass_fraction(self,d):
         L = [r._button_suggest_target_mass_fraction
-             for r in self._samples]
+             for r in self._sample]
         index = L.index(d)
 
-        d=self.suggester.make_suggestion()
-        x = {d[k] for k in self.suggester.targets.keys()}
-        self._samples[index].set_by_values(target_masses=x)
+        d=self.suggester.make_suggestion(force=True)
+        x = [d[k] for k in self.suggester.targets.keys()]
+        self._sample[index].set_by_values(target_masses=x)
 
-    def _update_samples(self,*args,**kwargs):
-        v = self.nsamples
+
+    def _update_sample(self,*args,**kwargs):
+        v = self.nsample
         if v is None:
             return
 
-        while len(self._samples) < v:
+        while len(self._sample) < v:
             self._add_sample()
 
-        while len(self._samples) > v:
+        while len(self._sample) > v:
             self._remove_sample()
 
-        sw = self._samples_widget
-        sw.children = [s.widget for s in self._samples]
+        sw = self._sample_widget
+        sw.children = [s.widget for s in self._sample]
 
     def _click_add_sample(self,*args,**kwargs):
         self._add_sample()
-        self.nsamples = len(self._samples)
+        self.nsample = len(self._sample)
 
     @property
     def widget(self):
         return self._widget
 
 
+
+    def to_dict(self,include_targets=False, include_sources=False):
+        out = {}
+        if include_targets:
+            out['targets'] = self._targets
+
+        if include_sources:
+            out['sources'] = self._sources
+
+        out['nbin'] = self.nbin
+        out['nsample'] = self.nsample
+
+        out['sample'] = [x.to_dict() for x in self]
+        return out
+
+    def set_by_values(self, nbin=None, nsample=None, sample=None):
+        if nbin:
+            self.nbin = nbin
+
+        if nsample:
+            self.nsample = nsample
+
+        if sample:
+            assert len(sample) <= self.nsample
+
+            for i, s in enumerate(sample):
+                self[i].set_by_values(**s)
+
+
+
+
+class GlobalWidget(object):
+    """
+    a collection of stuff
+    """
+
+    def __init__(self):
+
+        # header
+        self._load_text = widgets.Text(description='load file')
+        self._load_button = widgets.Button(description='load')
+        self._load = widgets.HBox(children=(self._load_text,self._load_button))
+
+        self._save_text = widgets.Text(description='save file')
+        self._save_button = widgets.Button(description='save')
+        self._save = widgets.HBox(children=(self._save_text,self._save_button))
+
+        self._header = widgets.VBox(children=(self._load, self._save))
+
+        # elements / sources
+        self._elements = elements(ncomp=1)
+        self._sources = TabSources(nsource=1)
+
+        # samples
+        self._sample_button = widgets.Button(description='create samples')
+        self._sample_button.on_click(self._create_samples)
+
+        self._samples = None
+        self._sample_box = widgets.HBox(children=(self._sample_button,))
+
+        # tab controller
+        self._controller = widgets.Tab(children=(self._elements.widget, self._sources.widget, self._sample_box))
+        for i, v in enumerate(['Elements','Sources','Samples']):
+            self._controller.set_title(i, v)
+
+
+        # final widget
+        self._widget = widgets.VBox(children=(self._header,
+                                           self._controller))
+
+    def _create_samples(self,*args,**kwargs):
+
+
+        self._samples = TabSuggester(targets = self._elements.to_list_of_tuples(),
+                                     sources = self._sources.to_CompoundCollection(),
+                                     nsample= self._elements.ncomp * 2)
+
+        self._sample_box.children = (self._sample_button, self._samples.widget)
 
 
 
