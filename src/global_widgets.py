@@ -5,6 +5,7 @@ import periodictable as PT
 from suggester_interface import get_compound_list, _Global_suggester
 from collections import defaultdict
 import SamplePlotter
+import json
 
 import mix
 
@@ -1329,12 +1330,14 @@ class GlobalWidget(object):
     def __init__(self):
 
         # header
-        self._load_text = widgets.Text(description='load file')
+        self._load_text = widgets.Text(description='load file', value='./glass_in.json')
         self._load_button = widgets.Button(description='load')
+        self._load_button.on_click(self._load_file)
         self._load = widgets.HBox(children=(self._load_text,self._load_button))
 
-        self._save_text = widgets.Text(description='save file')
+        self._save_text = widgets.Text(description='save file', value='./glass_out.json')
         self._save_button = widgets.Button(description='save')
+        self._save_button.on_click(self._save_file)
         self._save = widgets.HBox(children=(self._save_text,self._save_button))
 
         self._header = widgets.VBox(children=(self._load, self._save))
@@ -1369,6 +1372,51 @@ class GlobalWidget(object):
 
         self._sample_box.children = (self._sample_button, self._samples.widget)
 
+
+    def to_dict(self):
+        out = {}
+
+        out['elements'] = self._elements.to_dicts()
+
+        out['sources'] = self._sources.to_dicts()
+
+        if self._samples is None:
+            out['samples'] = None
+        else:
+            out['samples'] = self._samples.to_dict()
+
+
+        return out
+
+    def set_by_values(self, elements=None, sources=None, samples=None):
+
+        if elements:
+            self._elements.set_by_dicts(elements)
+
+        if sources:
+            self._sources.set_by_dicts(sources)
+
+        if samples:
+            # create samples
+            self._create_samples()
+
+            self._samples.set_by_values(**samples)
+
+
+    def _load_file(self, *args, **kwargs):
+        #print 'load file'
+
+        with open(self._load_text.value, 'r') as f:
+            d = json.load(f)
+
+        self.set_by_values(**d)
+
+
+    def _save_file(self, *args, **kwargs):
+        #print 'save file'
+        d = self.to_dict()
+        with open(self._save_text.value, 'w') as f:
+            json.dump(d, f, indent=2)
 
 
 

@@ -20,6 +20,13 @@ install periodictable:
   download from pypi.python.org/pypi/periodictable
     python setup.py develop
 
+
+  to use widgets (uses ipywidgets 5.2.2):
+     conda install -c conda-forge ipywidgets
+     --OR--
+
+     pip install ipywidgets
+
 Usage
 ************
 

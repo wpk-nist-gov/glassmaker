@@ -1,0 +1,49 @@
+{
+  "sources": [
+    [
+      {
+        "type": "manual", 
+        "volatile": false, 
+        "mass": "1.0", 
+        "compound": "LiB4O7"
+      }
+    ], 
+    [
+      {
+        "type": "oxide", 
+        "element": "Ca", 
+        "mass": "0.5", 
+        "volatile": false, 
+        "compound": "CaO"
+      }, 
+      {
+        "type": "manual", 
+        "volatile": true, 
+        "mass": "0.5", 
+        "compound": "H2O"
+      }
+    ], 
+    [
+      {
+        "type": "oxide", 
+        "element": "Fe", 
+        "mass": "1.0", 
+        "volatile": false, 
+        "compound": "Fe2O3"
+      }
+    ]
+  ], 
+  "elements": [
+    {
+      "massfrac_min": 0.1, 
+      "massfrac_max": 0.2, 
+      "element": "Fe"
+    }, 
+    {
+      "massfrac_min": 0.2, 
+      "massfrac_max": 0.3, 
+      "element": "Ca"
+    }
+  ], 
+  "samples": null
+}
